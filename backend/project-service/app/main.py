@@ -5,6 +5,7 @@ from collections.abc import Awaitable, Callable
 from fastapi import Depends, FastAPI, Request, Response
 
 from app.auth.dependencies import get_current_user
+from app.auth.shared import limit_shared_accounts
 from app.errors import register_error_handlers
 from app.routers import (
     assignments,
@@ -69,7 +70,10 @@ def create_app() -> FastAPI:
         application.include_router(router)
     # Sign-in is enforced here, so a new endpoint cannot forget it.
     for router in PROTECTED_ROUTERS:
-        application.include_router(router, dependencies=[Depends(get_current_user)])
+        application.include_router(
+            router,
+            dependencies=[Depends(get_current_user), Depends(limit_shared_accounts)],
+        )
     return application
 
 

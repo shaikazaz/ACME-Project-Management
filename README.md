@@ -6,8 +6,16 @@ allocation, deliverables, dependencies, budgets and risks. Built in the
 
 **Live application:** <https://dv98up7lkaauj.cloudfront.net>
 
-Accounts are created by an administrator. No passwords are published here, because
-anyone could use them to change or delete data. Please ask the author for access.
+| Role | What it can do | Live demo login |
+|---|---|---|
+| Admin | Everything: users, departments, resources, all projects | `demo.admin@acme.test` |
+| Project Manager | Runs their own projects: work, team, budget, AI Insights | `demo.manager@acme.test` |
+| Team Member | Sees assigned projects, updates their own deliverables | `demo.member@acme.test` |
+
+The live sign-in page has a one-click button for each role. These accounts are shared
+by all visitors, so the backend limits them: they can view their role's pages, and add
+and edit project work, but cannot delete records, change accounts, resources or
+settings, or see real email addresses.
 
 ## Questions It Answers
 
@@ -39,7 +47,7 @@ anyone could use them to change or delete data. Please ask the author for access
 | Frontend | React, React Responsive, Material UI, Vite |
 | Backend | Python, FastAPI, SQLAlchemy, Alembic |
 | Database | PostgreSQL |
-| AI (optional) | Google Gemini |
+| AI (optional) | Groq |
 | Infrastructure | Terraform (Lambda, S3, CloudFront, Aurora), LocalStack for development |
 
 ```mermaid
@@ -71,7 +79,7 @@ Set up the machine first with the [Validation Guide](./docs/validation.md). Then
 ./bin/start-dev.sh
 ```
 
-Open <http://localhost:3000>. Before the first use, prepare the Python tools, the
+Open `http://localhost:3000` (only on this computer). Before the first use, prepare the Python tools, the
 database and an admin account. There is no default password:
 
 ```sh
@@ -95,7 +103,8 @@ the local database only, and adds nothing when run again:
 ```
 
 To show demo logins on the local sign-in page, create
-`frontend/.env.development.local`. Git ignores it and production builds never read it:
+`frontend/.env.development.local`. Git ignores it and production builds never read it.
+The live ones are written by `deploy-aws.sh demo-logins`:
 
 ```sh
 VITE_DEMO_ACCOUNTS='[{"label":"Admin","email":"...","password":"..."}]'
@@ -103,9 +112,8 @@ VITE_DEMO_ACCOUNTS='[{"label":"Admin","email":"...","password":"..."}]'
 
 ### AI Insights
 
-A project's AI Insights tab works without AI, with fixed rules. To use Google Gemini,
-store your own API key in the local backend. The script asks for it and keeps it in no
-file. On Google's free tier, use demo data only:
+A project's AI Insights tab works without AI, with fixed rules. To use Groq, store
+your own API key in the local backend. The script asks for it and keeps it in no file:
 
 ```sh
 ./bin/set-ai-key.sh
@@ -119,6 +127,8 @@ Needs the workshop's AWS access. Deploying shows the plan and asks first:
 ./bin/deploy-aws.sh plan     # Shows what would change
 ./bin/deploy-aws.sh apply    # Deploys, migrates the database, checks the result
 ./bin/deploy-aws.sh admin    # Creates an admin; the password is typed
+./bin/deploy-aws.sh demo-logins  # Shows shared, limited demo logins to visitors
+./bin/deploy-aws.sh demo     # Adds fictional demo data
 ./bin/deploy-aws.sh check    # Health checks
 ```
 
@@ -133,7 +143,7 @@ export POSTGRES_PASS=<local database password>
 cd frontend && npm test && npm run lint
 ```
 
-Last full run on 24 November 2026: 694 backend and 140 frontend tests passed, with no
+Last full run on 24 November 2026: 734 backend and 140 frontend tests passed, with no
 Bandit or npm audit findings. A browser audit of every feature also passed; its scripts
 are not part of this repository.
 

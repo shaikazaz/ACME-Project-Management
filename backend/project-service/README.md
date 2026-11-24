@@ -143,7 +143,7 @@ Only open projects are assessed. The level is the most severe reason.
 
 Explains one project's latest data on request. It saves and changes nothing.
 
-1. All figures come from the existing calculations. The AI provider (Google Gemini) may not
+1. All figures come from the existing calculations. The AI provider (Groq) may not
    write digits: it uses placeholders that this service fills with verified values. Text
    with digits or unknown placeholders is discarded.
 2. The provider never receives names or emails of people, descriptions or expense texts.
@@ -151,7 +151,6 @@ Explains one project's latest data on request. It saves and changes nothing.
 3. Without a key, or when the provider fails, fixed rules write the observations. They
    are labelled as rule-based.
 
-The key is read from `GEMINI_API_KEY`. Locally, `bin/set-ai-key.sh` stores it in the
-LocalStack Lambda. Every generation is one request. On
-Google's free tier, requests are limited and Google may use the data to improve its
-products, so use it for demo data only.
+The key is read from `GROQ_API_KEY`. Locally, `bin/set-ai-key.sh` stores it in the
+LocalStack Lambda. When a model is busy or slow, another one is asked, so one
+generation makes up to two requests. Groq's free plan limits requests.

@@ -83,3 +83,15 @@ variable "aws_eks_type" {
     error_message = "The aws_eks_type variable must be either 'ON_DEMAND' or 'SPOT'."
   }
 }
+
+variable "aws_logs_retention" {
+  description = "Days to keep the function's logs. deploy-aws.sh keeps what the account has set."
+  type        = number
+  default     = 7
+}
+
+variable "aws_logs_kms_key" {
+  description = "Key that encrypts the function's logs. deploy-aws.sh keeps what the account has set."
+  type        = string
+  default     = null
+}

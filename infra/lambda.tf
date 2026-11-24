@@ -33,7 +33,8 @@ module "lambda" {
   attach_cloudwatch_logs_policy     = true
   attach_dead_letter_policy         = true
   ephemeral_storage_size            = 512
-  cloudwatch_logs_retention_in_days = 7
+  cloudwatch_logs_retention_in_days = var.aws_logs_retention
+  cloudwatch_logs_kms_key_id        = var.aws_logs_kms_key
   cloudwatch_logs_skip_destroy      = false
   use_existing_cloudwatch_log_group = false
   trigger_on_package_timestamp      = false

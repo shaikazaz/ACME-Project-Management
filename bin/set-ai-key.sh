@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Script: Set the AI key of the local backend
-# Purpose: Store a Google Gemini API key in the environment of the LocalStack Lambda
+# Purpose: Store a Groq API key in the environment of the LocalStack Lambda
 # Usage: ./set-ai-key.sh [--remove]
 
 set -euo pipefail
 
 if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
     echo "Usage: $0 [--remove]"
-    echo "Store (or remove) a Google Gemini API key for AI Insights, locally only"
+    echo "Store (or remove) a Groq API key for AI Insights, locally only"
     echo ""
     echo "The key is typed, not passed as an argument, and is kept in no file."
     echo "Run this again after LocalStack restarts or the backend is redeployed."
@@ -35,10 +35,15 @@ fi
 
 AI_KEY=""
 if [ "${1:-}" != "--remove" ]; then
-    read -rsp "Google Gemini API key (hidden): " AI_KEY
+    read -rsp "Groq API key (hidden): " AI_KEY
     echo ""
     if [ -z "$AI_KEY" ]; then
         echo "ERROR: No key entered."
+        exit 1
+    fi
+    # Never send another company's key to Groq
+    if [[ "$AI_KEY" != gsk_* ]]; then
+        echo "ERROR: This is not a Groq key. Groq keys start with gsk_"
         exit 1
     fi
 fi
@@ -58,9 +63,10 @@ aws lambda get-function-configuration --function-name "$FUNCTION" --output json 
 import json, os, sys
 config = json.load(sys.stdin)
 variables = config["Environment"]["Variables"]
-variables.pop("GEMINI_API_KEY", None)
+variables.pop("GROQ_API_KEY", None)
+variables.pop("GEMINI_API_KEY", None)  # Used by an earlier version
 if os.environ["AI_KEY"]:
-    variables["GEMINI_API_KEY"] = os.environ["AI_KEY"]
+    variables["GROQ_API_KEY"] = os.environ["AI_KEY"]
 print(json.dumps({
     "FunctionName": config["FunctionName"],
     "Environment": {"Variables": variables},

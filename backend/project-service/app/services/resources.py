@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.auth.permissions import Permission, has_permission
 from app.auth.scopes import visible_projects
+from app.auth.shared import is_shared, visible_email
 from app.dates import today
 from app.errors import ApiError
 from app.models import Department, Project, ProjectAssignment, Resource, User
@@ -98,7 +99,7 @@ def summarize(user: User, row: Row, week: Decimal) -> dict:
         "id": resource.id,
         "employee_code": resource.employee_code,
         "full_name": resource.full_name,
-        "email": resource.email,
+        "email": visible_email(user, resource.email),
         "department": NamedItem.model_validate(resource.department),
         "job_title": resource.job_title,
         "skills": resource.skills,
@@ -152,9 +153,10 @@ def search_resources(
         columns = (
             Resource.full_name,
             Resource.employee_code,
-            Resource.email,
             Resource.job_title,
             skills,
+            # A search must not guess a hidden email.
+            *(() if is_shared(user) else (Resource.email,)),
         )
         conditions.append(
             or_(*(column.icontains(search, autoescape=True) for column in columns))
@@ -248,7 +250,7 @@ def list_options(session: Session, user: User) -> ResourceOptions:
     departments = session.scalars(select(Department).order_by(Department.name))
     skills = session.scalars(select(func.unnest(Resource.skills)).distinct())
     users = []
-    if has_permission(user.role, Permission.MANAGE_RESOURCES):
+    if has_permission(user.role, Permission.MANAGE_RESOURCES) and not is_shared(user):
         linked = select(Resource.user_id).where(Resource.user_id.is_not(None))
         users = session.scalars(
             select(User).where(User.id.not_in(linked)).order_by(User.full_name, User.id)

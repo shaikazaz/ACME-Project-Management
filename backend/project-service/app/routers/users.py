@@ -9,6 +9,7 @@ from app.auth.dependencies import SessionDep, require
 from app.auth.passwords import hash_password
 from app.auth.permissions import Permission, Role
 from app.auth.service import ensure_another_admin, revoke_tokens, set_password
+from app.auth.shared import FICTIONAL_DOMAINS, HIDDEN_EMAIL, is_shared, visible_email
 from app.errors import ApiError
 from app.models import User
 from app.schemas.common import Page
@@ -39,7 +40,7 @@ TargetUser = Annotated[User, Depends(find_user)]
 @router.get("")
 def list_users(
     session: SessionDep,
-    _: Admin,
+    admin: Admin,
     search: Annotated[str, Query(max_length=100)] = "",
     role: RoleName | None = None,
     is_active: bool | None = None,
@@ -48,6 +49,11 @@ def list_users(
 ) -> Page[UserResponse]:
     """List accounts, optionally searched and filtered."""
     conditions = []
+    if is_shared(admin):
+        # Also keeps a search from guessing a hidden email.
+        conditions.append(
+            or_(*(User.email.iendswith(domain) for domain in FICTIONAL_DOMAINS))
+        )
     if search:
         conditions.append(
             or_(
@@ -83,8 +89,10 @@ def create_user(body: UserCreate, session: SessionDep, _: Admin) -> UserResponse
 
 
 @router.get("/{user_id}")
-def read_user(user: TargetUser) -> UserResponse:
+def read_user(user: TargetUser, admin: Admin) -> UserResponse:
     """Return one account."""
+    if visible_email(admin, user.email) == HIDDEN_EMAIL:
+        raise ApiError(404, "User not found.")
     return UserResponse.model_validate(user)
 
 

@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import re
+import time
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -42,15 +43,27 @@ from app.services.projects import describe_project
 
 logger = logging.getLogger(__name__)
 
-MODEL = "gemini-3.6-flash"
-PROVIDER_URL = "https://generativelanguage.googleapis.com/v1beta/interactions"
+# The next model is asked when one is busy or slow.
+MODELS = ("openai/gpt-oss-120b", "openai/gpt-oss-20b")
+PROVIDER_URL = "https://api.groq.com/openai/v1/chat/completions"
 # Below the 30 seconds that the browser and CloudFront wait for a response.
 TIMEOUT_SECONDS = 22.0
-MAX_TOKENS = 8000  # Includes the tokens the model thinks with
+ATTEMPT_SECONDS = 10.0
+MAX_TOKENS = 3000  # Includes the tokens the model thinks with
 MAX_DELIVERABLES, MAX_PEOPLE, MAX_ITEMS, MAX_ACTIONS = 15, 12, 4, 5
 MAX_TEXT = 400
 
 PLACEHOLDER = re.compile(r"\{([a-z][a-z0-9_]*)\}")
+# A reference without its braces, such as d3 or m1_load
+BARE_REFERENCE = re.compile(r"(?<![\w{])([dmn]\d+(?:_[a-z]+)?)(?![\w}])")
+SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+# Numbers in words cannot be verified either
+NUMBER_WORD = re.compile(
+    r"\b(zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|\w+teen"
+    r"|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million"
+    r"|dozen|half|third|quarter|twice|double|triple)\b",
+    re.IGNORECASE,
+)
 NOTICES = {
     "not_configured": "AI is not set up. These observations use fixed rules.",
     "timeout": "The AI service took too long. These observations use fixed rules.",
@@ -75,6 +88,10 @@ Rules:
   "ref". Use them only for what they are labelled as. Other keys, such as name, status or
   level, are not placeholders: {name} is wrong and {project_name} is right.
 - Write a placeholder instead of the name, never next to it.
+- Copying a value is wrong, even when it is correct: "65% done", "30 days left", "Two are
+  completed", "m1 is busy" and "Unblock d3" are all wrong. "{progress} done",
+  "{days_left} left", "{deliverables_completed} are completed", "{m1} is busy" and
+  "Unblock {d3}" are right. Never write numbers as words either.
 - Never calculate, estimate or judge risk yourself. "risk" holds the official result.
 - If something is listed under "unavailable", say that it is unavailable.
 - Recommend only. Never claim that anything was changed.
@@ -480,49 +497,81 @@ def write_rules(
     )
 
 
-def ask_provider(context: dict) -> str:
-    """Ask the AI provider once. Retrying is left to the user.
+def ask_provider(facts: Facts) -> tuple[Insights, str]:
+    """Ask the AI provider's models in turn, until one answers well.
 
     Args:
+        facts: Verified facts.
+
+    Returns:
+        The verified insights, and the model that wrote them.
+
+    Raises:
+        InsightError: No model gave usable insights in time.
+    """
+    key = os.getenv("GROQ_API_KEY", "").strip()
+    if not key:
+        raise InsightError("not_configured")
+    deadline = time.monotonic() + TIMEOUT_SECONDS
+    failure = InsightError("timeout")
+    for model in MODELS:
+        left = deadline - time.monotonic()
+        if left <= 0:
+            break
+        try:
+            answer = _ask_model(model, key, facts.context, min(left, ATTEMPT_SECONDS))
+            return read_answer(answer, facts.values), model
+        except InsightError as exc:
+            if exc.code not in ("rate_limited", "timeout", "invalid_response"):
+                raise
+            failure = exc
+    raise failure
+
+
+def _ask_model(model: str, key: str, context: dict, seconds: float) -> str:
+    """Ask one model once.
+
+    Args:
+        model: The model.
+        key: The API key.
         context: The data to explain.
+        seconds: How long to wait.
 
     Returns:
         The answer as JSON text.
 
     Raises:
-        InsightError: The provider gave no answer.
+        InsightError: The model gave no answer.
     """
-    key = os.getenv("GEMINI_API_KEY", "").strip()
-    if not key:
-        raise InsightError("not_configured")
+    # The provider does not document references, so the action's schema is put inline.
+    schema = Insights.model_json_schema()
+    schema["properties"]["actions"]["items"] = schema.pop("$defs")["Action"]
     body = {
-        "model": MODEL,
-        "system_instruction": INSTRUCTIONS,
-        "input": json.dumps(context, sort_keys=True),
+        "model": model,
+        "messages": [
+            {"role": "system", "content": INSTRUCTIONS},
+            {"role": "user", "content": json.dumps(context, sort_keys=True)},
+        ],
         "response_format": {
-            "type": "text",
-            "mime_type": "application/json",
-            "schema": Insights.model_json_schema(),
+            "type": "json_schema",
+            "json_schema": {"name": "insights", "strict": True, "schema": schema},
         },
-        "generation_config": {
-            "thinking_level": "minimal",
-            "max_output_tokens": MAX_TOKENS,
-        },
-        # Google must not keep the request for later conversations.
-        "store": False,
+        "reasoning_effort": "low",
+        "max_completion_tokens": MAX_TOKENS,
     }
     request = Request(
         PROVIDER_URL,
         data=json.dumps(body).encode(),
         headers={
+            "Authorization": f"Bearer {key}",
             "Content-Type": "application/json",
-            "Api-Revision": "2026-05-20",
-            "x-goog-api-key": key,
+            # The provider refuses Python's default.
+            "User-Agent": "acme-project-service",
         },
     )
     try:
         # The address is fixed and uses HTTPS.
-        with urlopen(request, timeout=TIMEOUT_SECONDS) as response:  # nosec B310
+        with urlopen(request, timeout=seconds) as response:  # nosec B310
             answer = json.load(response)
     except HTTPError as exc:
         # The status only: the body could repeat what was sent.
@@ -541,43 +590,46 @@ def ask_provider(context: dict) -> str:
         logger.error("AI provider request or answer unreadable")
         raise InsightError("invalid_response") from None
     try:
-        status = answer["status"]
-        texts = [
-            part["text"]
-            for step in answer["steps"]
-            if step["type"] == "model_output"
-            for part in step["content"]
-            if part["type"] == "text"
-        ]
-    except (KeyError, TypeError):
+        choice = answer["choices"][0]
+        finished, text = choice["finish_reason"] == "stop", choice["message"]["content"]
+    except (KeyError, IndexError, TypeError):
         logger.error("AI provider answer has an unexpected format")
         raise InsightError("invalid_response") from None
-    if status != "completed":
+    if not finished or not isinstance(text, str):
         logger.warning("AI provider did not complete its answer")
         raise InsightError("invalid_response")
-    return "".join(texts)
+    return text
 
 
 def fill_in(text: str, values: dict[str, str]) -> str | None:
-    """Replace placeholders with verified values.
+    """Replace placeholders with verified values, sentence by sentence.
 
     Args:
         text: Text from the provider.
         values: The verified values.
 
     Returns:
-        The finished text, or nothing when the text must not be shown.
+        The sentences that may be shown, or nothing when there are none.
     """
     text = " ".join(text.split())
-    bare = PLACEHOLDER.sub("", text)
-    if not text or len(text) > MAX_TEXT or re.search(r"[\d{}]", bare):
+    if len(text) > MAX_TEXT:
         return None
-    if any(name not in values for name in PLACEHOLDER.findall(text)):
+    filled = (_fill_sentence(part, values) for part in SENTENCE_END.split(text))
+    return " ".join(part for part in filled if part) or None
+
+
+def _fill_sentence(text: str, values: dict[str, str]) -> str | None:
+    """Replace the placeholders of one sentence, unless it must not be shown."""
+    text = BARE_REFERENCE.sub(r"{\1}", text)
+    bare = PLACEHOLDER.sub("", text)
+    if not text or re.search(r"[\d{}]", bare) or NUMBER_WORD.search(bare):
+        return None
+    names = PLACEHOLDER.findall(text)
+    if any(name not in values for name in names):
         return None
     # Values already contain their units.
     text = re.sub(r"\}\s*%", "}", text)
     text = re.sub(r"[$₹€£]\s*\{", "{", text)
-    names = PLACEHOLDER.findall(text)
     text = PLACEHOLDER.sub(lambda match: values[match.group(1)], text)
     for name in names:
         # A name next to its own placeholder would be shown twice.
@@ -636,9 +688,9 @@ def generate(facts: Facts) -> InsightsResponse:
     Returns:
         The insights.
     """
-    source, notice, insights = "ai", None, None
+    source, model, notice = "ai", None, None
     try:
-        insights = read_answer(ask_provider(facts.context), facts.values)
+        insights, model = ask_provider(facts)
     except InsightError as exc:
         source, insights = "rules", facts.fallback
         notice = Notice(code=exc.code, message=NOTICES[exc.code])
@@ -649,7 +701,7 @@ def generate(facts: Facts) -> InsightsResponse:
         notice = Notice(code="unavailable", message=NOTICES["unavailable"])
     return InsightsResponse(
         source=source,
-        model=MODEL if source == "ai" else None,
+        model=model if source == "ai" else None,
         notice=notice,
         generated_at=datetime.now(UTC),
         risk_level=facts.risk_level,

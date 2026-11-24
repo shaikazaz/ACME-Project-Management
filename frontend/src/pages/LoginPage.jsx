@@ -12,12 +12,11 @@ import { ErrorState, LoadingState } from '../components/PageStates.jsx';
 import { useAuth } from '../context/contexts.js';
 
 /**
- * Reads the demo accounts from .env.development.local. Production builds never
- * load that file, and the DEV checks remove this feature from them as well.
+ * Reads the demo accounts: local ones from .env.development.local, and the
+ * shared ones of the live website from .env.production.local. Git ignores both.
  * @returns {Object[]} The accounts; empty when there are none.
  */
 function readDemoAccounts() {
-  if (!import.meta.env.DEV) return [];
   try {
     return JSON.parse(import.meta.env.VITE_DEMO_ACCOUNTS ?? '[]');
   } catch {
@@ -102,7 +101,7 @@ function LoginPage() {
           </Button>
         </Box>
       </Paper>
-      {import.meta.env.DEV && demoAccounts.length > 0 && (
+      {demoAccounts.length > 0 && (
         <DemoAccounts accounts={demoAccounts} disabled={busy} onUse={signIn} />
       )}
     </Container>

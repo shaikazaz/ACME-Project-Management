@@ -9,7 +9,7 @@ const URL = '/projects/10?tab=insights';
 const KEY = 'POST /projects/10/insights';
 const RESULT = {
   source: 'ai',
-  model: 'gemini-3.6-flash',
+  model: 'gpt-oss-120b',
   notice: null,
   generated_at: '2026-11-24T10:00:00Z',
   risk_level: 'High',
@@ -46,7 +46,7 @@ describe('AI insights', () => {
       expect(screen.getByRole('region', { name })).toBeVisible();
     });
     expect(screen.getByText('The project is on track.')).toBeVisible();
-    expect(screen.getByText(/Generated .*24 Nov 2026.* by gemini-3.6-flash/)).toBeVisible();
+    expect(screen.getByText(/Generated .*24 Nov 2026.* by gpt-oss-120b/)).toBeVisible();
     const figures = screen.getByRole('region', { name: 'Verified figures' });
     expect(within(figures).getByText('65%')).toBeVisible();
     expect(screen.getByText('Unavailable: forecast end date.')).toBeVisible();
@@ -58,7 +58,7 @@ describe('AI insights', () => {
     expect(await screen.findByText('Rule-based, not AI')).toBeVisible();
     expect(screen.getByText('The AI service took too long.')).toBeVisible();
     expect(screen.queryByText('AI-generated')).toBeNull();
-    expect(screen.queryByText(/gemini/)).toBeNull();
+    expect(screen.queryByText(/gpt-oss/)).toBeNull();
   });
 
   it('shows loading, then regenerates with fresh data', async () => {

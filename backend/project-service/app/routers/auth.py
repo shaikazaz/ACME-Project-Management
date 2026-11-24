@@ -11,6 +11,7 @@ from app.auth.dependencies import (
 from app.auth.passwords import verify_password
 from app.auth.permissions import ROLE_PERMISSIONS, Role
 from app.auth.service import authenticate, revoke_tokens, set_password
+from app.auth.shared import is_shared
 from app.auth.tokens import LIFETIMES, create_token
 from app.errors import ApiError
 from app.models import User
@@ -71,7 +72,12 @@ def refresh(body: RefreshRequest, session: SessionDep) -> AccessTokenResponse:
 
 @router.post("/logout", status_code=204)
 def logout(user: CurrentUser, session: SessionDep) -> None:
-    """Sign out on every device by making all of the user's tokens invalid."""
+    """Sign out on every device by making all of the user's tokens invalid.
+
+    A shared demo account signs out only here, so other visitors stay signed in.
+    """
+    if is_shared(user):
+        return
     revoke_tokens(user)
     session.commit()
 

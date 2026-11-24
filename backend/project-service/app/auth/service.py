@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.auth.passwords import DUMMY_HASH, hash_password, verify_password
 from app.auth.permissions import Role
+from app.auth.shared import is_shared
 from app.errors import ApiError
 from app.models import User
 
@@ -49,6 +50,10 @@ def authenticate(session: Session, email: str, password: str) -> User | None:
         user.last_login_at = now
         session.commit()
         return user
+    if is_shared(user):
+        # The password is public, so a lock would only keep visitors out.
+        session.rollback()
+        return None
     user.failed_login_count += 1
     if user.failed_login_count >= MAX_FAILED_LOGINS:
         user.failed_login_count = 0
