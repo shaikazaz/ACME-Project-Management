@@ -14,3 +14,9 @@ resource "random_pet" "this" {
     seed_input = try(var.aws_app_code, terraform.workspace)
   }
 }
+
+# Key that signs login tokens. Replacing it signs every user out.
+resource "random_password" "jwt" {
+  length  = 64
+  special = false
+}

@@ -50,10 +50,10 @@ module "lambda" {
     max_age           = 0
   }
 
-  environment_variables = {
+  environment_variables = merge({
     for key, value in local.env_vars :
     key => trimspace(value) if try(trimspace(value), "") != ""
-  }
+  }, { JWT_SECRET = random_password.jwt.result })
 
   tags = local.app_tags
 
@@ -85,7 +85,8 @@ resource "null_resource" "hot_reload" {
       aws lambda update-function-code \
         --function-name ${module.lambda[each.key].lambda_function_name} \
         --s3-bucket hot-reload \
-        --s3-key ${each.value.path}
+        --s3-key ${each.value.path} \
+        --query FunctionName --output text # Never print the environment
     EOT
   }
 

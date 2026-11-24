@@ -1,76 +1,142 @@
-# Coding Workshop
+# ACME Project Management
 
-The goal of this coding workshop is to enable and assess the hands-on skills
-of participants through development of a practical technical solution that
-solves a theoretical business problem.
+A web application that gives ACME Inc. one place to see project progress, resource
+allocation, deliverables, dependencies, budgets and risks. Built in the
+[Coding Workshop](./docs/README.md) starter repository.
 
-## Getting Started
+## Questions It Answers
 
-Navigate to [Coding Workshop - Main Guide](./docs/README.md) to get started.
+| Question | Where |
+|---|---|
+| What is the status of each active project? | Dashboard, Projects |
+| Which projects are at risk of missing deadlines? | Dashboard (reasons and forecast) |
+| How are resources allocated? | Workload, a project's Team tab |
+| What are the key deliverables and their status? | Deliverables |
+| Who is over-allocated? | Resources |
+| What is the dependency chain? | A project's Dependencies tab |
+| How much budget is consumed versus planned? | Budgets |
 
-## Coding Workshop Example
+## Features
 
-Coding workshop organizer(s) will provide instructions to follow by email. Here
-below is a real example of requirements and expectations for participant(s):
+* Sign-in with hashed passwords, expiring tokens and sign-out on every device
+* Three roles, enforced by the backend: Admin, Project Manager and Team Member
+* Projects, milestones, deliverables, resources, assignments, expenses and users
+* Dependencies with automatic blocking and protection against circular chains
+* Over-allocation, budget and risk detection with fixed, explainable rules
+* Optional AI Insights that explain a project; fixed rules take over without AI
+* Search, filters, sorting and paging in the backend
+* Layouts for desktop, tablet and phone
 
-### Requirements: Business Problem
+## Technology
 
-Our company ACME Inc. is going through a massive organizational transformation
-to become a more data-driven organization. Information about teams structure
-and performance is currently scattered across multiple systems, making it
-difficult to get a comprehensive view of team dynamics and achievements.
+| Layer | Technology |
+|---|---|
+| Frontend | React, React Responsive, Material UI, Vite |
+| Backend | Python, FastAPI, SQLAlchemy, Alembic |
+| Database | PostgreSQL |
+| AI (optional) | Google Gemini |
+| Infrastructure | Terraform (Lambda, S3, CloudFront, Aurora), LocalStack for development |
 
-We are struggling to answer simple questions like:
+```mermaid
+graph LR
+    Browser -->|pages| CF["CloudFront and S3 (local: Vite, port 3000)"]
+    Browser -->|API| API["Lambda: FastAPI (local: proxy, port 3001)"]
+    API --> DB["PostgreSQL"]
+```
 
-* Who are the members of each team?
-* Where are the teams located?
-* What are the key achievements of each team on a monthly basis?
-* How many teams have team leader not co-located with team members?
-* How many teams have team leader as a non-direct staff?
-* How many teams have non-direct staff to employees ratio above 20%?
-* How many teams are reporting to an organization leader?
+## Structure
 
-### Requirements: Technical Solution
+```
+backend/project-service/   API, business rules and database migrations
+frontend/src/              Pages, components, services, hooks and tests
+tests/backend/             Backend tests, kept out of the Lambda package
+bin/                       Scripts to start, deploy and add demo data
+infra/                     Terraform
+docs/                      Workshop guides
+```
 
-As part of this transformation, we are looking to build a centralized team
-management tool that will allow us to track team members, team locations,
-monthly team achievements, as well as individual-level and team-level metadata.
-Initial focus is to provide a self-service capability without any integrations
-with other tools such as Employee Directory, Project Tracking, or Performance
-Management.
+See the [backend guide](./backend/project-service/README.md) for endpoints and for the
+dependency, workload, budget and risk rules.
 
-The technical solution involves developing a stand-alone web application using
-modern technologies. The application will have the following features:
+## Run It Locally
 
-* User authentication and authorization
-* Role-based access control
-* CRUD operations for individuals, teams, achievements and metadata
-* Search and filter functionality
-* Responsive design for mobile and desktop usage
+Set up the machine first with the [Validation Guide](./docs/validation.md). Then:
 
-### Requirements: Technology Stack
+```sh
+./bin/start-dev.sh
+```
 
-The following technologies are required to build the application:
+Open <http://localhost:3000>. Before the first use, prepare the Python tools, the
+database and an admin account. There is no default password:
 
-* Frontend: HTML, CSS, React.js with React Responsive and Material UI Components
-* Backend: Python
-* Database: PostgreSQL
+```sh
+python3.13 -m venv .venv
+.venv/bin/python -m pip install -r tests/backend/requirements-dev.txt
 
-The following technologies are good to know, as they are used to manage and
-deploy code:
+cd backend/project-service
+export IS_LOCAL=true POSTGRES_PASS=<local database password>
+../../.venv/bin/alembic upgrade head
+../../.venv/bin/python -m app.cli --email you@example.com --name "Your Name"
+```
 
-* Version Control: Git, GitHub
-* Infrastructure: Terraform
-* Deployment Mode: Shell Scripts
-* Deployment Target: AWS Serverless (e.g. S3, CloudFront, Lambda, RDS)
+### Demo Data
 
-### Expectations: Value-Based Outcomes
+Adds 12 fictional projects with everything inside them. It only adds records, works on
+the local database only, and adds nothing when run again:
 
-By the end of the workshop, participants will have developed a functional
-web application that meets the requirements outlined above. The application
-will be deployed to a cloud environment and accessible via a web browser.
-Participants will also gain hands-on experience with modern web development
-technologies and best practices.
+```sh
+.venv/bin/python bin/seed-demo.py            # Dry run
+.venv/bin/python bin/seed-demo.py --insert
+```
+
+To show demo logins on the local sign-in page, create
+`frontend/.env.development.local`. Git ignores it and production builds never read it:
+
+```sh
+VITE_DEMO_ACCOUNTS='[{"label":"Admin","email":"...","password":"..."}]'
+```
+
+### AI Insights
+
+A project's AI Insights tab works without AI, with fixed rules. To use Google Gemini,
+store your own API key in the local backend. The script asks for it and keeps it in no
+file. On Google's free tier, use demo data only:
+
+```sh
+./bin/set-ai-key.sh
+```
+
+## Tests
+
+```sh
+export POSTGRES_PASS=<local database password>
+.venv/bin/python -m pytest tests/backend     # Uses a temporary database
+cd frontend && npm test && npm run lint
+```
+
+Last full run on 24 November 2026: 688 backend and 140 frontend tests passed, with no
+Bandit or npm audit findings. A browser audit of every feature also passed; its scripts
+are not part of this repository.
+
+## Design Decisions
+
+* **One service, split by feature.** Projects, resources and budgets are queried
+  together, and Lambdas here cannot share code.
+* **Totals are calculated, not stored.** Progress, spending and workload cannot
+  disagree with the records.
+* **AI explains and never calculates.** The backend fills in every figure, and AI
+  cannot change records.
+* **Rules live in the backend and the database.** The frontend only hides what the
+  backend would refuse.
+
+## Known Limits
+
+* Open pages do not refresh by themselves.
+* Team leads use the Project Manager role.
+* The free AI service is sometimes busy or slow. The app then shows its fixed rules.
+* Not load tested, and test coverage has not been measured.
+* Not deployed to AWS yet. Before that, the CloudFront rule that turns 404 responses
+  into pages and the 128 MB Lambda memory need to change.
 
 ## Contributing
 

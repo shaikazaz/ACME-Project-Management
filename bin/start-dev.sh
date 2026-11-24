@@ -57,15 +57,24 @@ if ! command -v psql &> /dev/null; then
     exit 1
 fi
 
+# Lambda containers reach PostgreSQL through the Docker bridge (Linux)
+DOCKER_HOST_IP="172.17.0.1"
+DOCKER_SUBNET="172.17.0.0/16"
+
+# True when PostgreSQL listens where Docker containers can reach it
+pg_listening() {
+    ss -ltn 2>/dev/null | grep -qE "(0\.0\.0\.0|${DOCKER_HOST_IP//./\\.}):5432"
+}
+
 PG_OK=false
 
 if pg_isready -q; then
-    # Check if bound to 0.0.0.0 so Docker Lambda containers can reach it
-    if ss -ltn 2>/dev/null | grep -q '0.0.0.0:5432'; then
+    # Check if Docker Lambda containers can reach it
+    if pg_listening; then
         PG_OK=true
-        echo -e "  ✓ PostgreSQL is running and bound to 0.0.0.0:5432"
+        echo -e "  ✓ PostgreSQL is running and reachable from Docker"
     else
-        echo -e "  ⚠ PostgreSQL running but not bound to 0.0.0.0, reconfiguring..."
+        echo -e "  ⚠ PostgreSQL running but not reachable from Docker, reconfiguring..."
     fi
 fi
 
@@ -91,18 +100,18 @@ if [ "$PG_OK" = false ]; then
         fi
 
         PG_HBA=$(find /etc/postgresql -name "pg_hba.conf" 2>/dev/null | head -1)
-        [ -n "$PG_CONF" ] && sudo sed -i "s/#\?listen_addresses\s*=\s*'[^']*'/listen_addresses = '*'/" "$PG_CONF"
-        # Allow all hosts to connect (local dev only)
-        if [ -n "$PG_HBA" ] && ! sudo grep -q "0.0.0.0/0" "$PG_HBA"; then
-            echo "host all all 0.0.0.0/0 trust" | sudo tee -a "$PG_HBA" > /dev/null
+        [ -n "$PG_CONF" ] && sudo sed -i "s/#\?listen_addresses\s*=\s*'[^']*'/listen_addresses = 'localhost,$DOCKER_HOST_IP'/" "$PG_CONF"
+        # Allow only the local Docker network, and always require a password
+        if [ -n "$PG_HBA" ] && ! sudo grep -qF "$DOCKER_SUBNET" "$PG_HBA"; then
+            echo "host all all $DOCKER_SUBNET scram-sha-256" | sudo tee -a "$PG_HBA" > /dev/null
         fi
         sudo systemctl restart "$PG_SERVICE" || { echo -e "  ✗ Failed to restart PostgreSQL"; exit 1; }
     fi
 
     # Wait for PostgreSQL to be ready and bound
     for i in {1..10}; do
-        if pg_isready -q && ss -ltn 2>/dev/null | grep -q '0.0.0.0:5432'; then
-            echo -e "  ✓ PostgreSQL started and bound to 0.0.0.0:5432"
+        if pg_isready -q && pg_listening; then
+            echo -e "  ✓ PostgreSQL started and reachable from Docker"
             break
         fi
         if [ "$i" -eq 10 ]; then
@@ -255,7 +264,8 @@ LOCALSTACK_IMAGE="${LOCALSTACK_IMAGE:-localstack/localstack-pro}"
 if curl -s http://localhost.localstack.cloud:4566/_localstack/health > /dev/null 2>&1; then
     # Verify the correct image is running
     RUNNING_IMAGE=$(docker inspect localstack-main --format '{{.Config.Image}}' 2>/dev/null || echo "")
-    if [ "$RUNNING_IMAGE" != "$LOCALSTACK_IMAGE" ]; then
+    # Without an explicit tag, accept any tag of the expected image
+    if [ "$RUNNING_IMAGE" != "$LOCALSTACK_IMAGE" ] && [ "${RUNNING_IMAGE%%:*}" != "$LOCALSTACK_IMAGE" ]; then
         echo -e "  ⚠ LocalStack running with wrong image ($RUNNING_IMAGE), expected $LOCALSTACK_IMAGE. Restarting..."
         localstack stop
         docker stop localstack-main 2>/dev/null || true
@@ -328,6 +338,8 @@ else
 fi
 
 # Install pip requirements into each Python service directory for hot-reload
+# Compiled packages must match the Lambda runtime (python3.13), not the default pip
+LAMBDA_PYTHON="python3.13"
 # Skip if requirements.txt hasn't changed since last install (avoids slow PyPI lookups)
 shopt -s nullglob
 for req in "$PROJECT_ROOT"/backend/*/requirements.txt; do
@@ -339,8 +351,13 @@ for req in "$PROJECT_ROOT"/backend/*/requirements.txt; do
         continue
     fi
     echo -e "  Installing pip requirements for $(basename "$svc_dir")..."
-    pip install --quiet --target="$svc_dir" -r "$req" 2>/dev/null || true
-    echo "$REQS_HASH" > "$HASH_FILE"
+    if "$LAMBDA_PYTHON" -m pip install --quiet --upgrade --target="$svc_dir" -r "$req" > /tmp/pip-install.log 2>&1; then
+        echo "$REQS_HASH" > "$HASH_FILE"
+    else
+        echo -e "  ✗ pip install failed for $(basename "$svc_dir"):"
+        tail -n 20 /tmp/pip-install.log | sed 's/^/    /'
+        exit 1
+    fi
 done
 
 # Install npm dependencies into each Node.js service directory for hot-reload

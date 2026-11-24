@@ -38,7 +38,8 @@ const server = http.createServer((req, res) => {
   // Enable CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', '*');
+  // Browsers do not count Authorization as part of '*', so list it explicitly
+  res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, Accept');
   res.setHeader('Access-Control-Max-Age', '86400');
 
   // Handle preflight
@@ -64,9 +65,8 @@ const server = http.createServer((req, res) => {
 
   const endpointName = pathParts[1];
   const remainingPath = pathParts.length > 2 ? '/' + pathParts.slice(2).join('/') : '';
-  const targetUrl = endpoints[endpointName] + remainingPath + (parsedUrl.search || '');
 
-  if (!targetUrl) {
+  if (!Object.hasOwn(endpoints, endpointName)) {
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
       error: `Unknown endpoint: ${endpointName}`,
@@ -75,7 +75,11 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  console.log(`${req.method} /api/${endpointName} -> ${targetUrl}`);
+  // Lambda URLs end with a slash, so trim it before adding the remaining path
+  const baseUrl = endpoints[endpointName].replace(/\/+$/, '');
+  const targetUrl = baseUrl + (remainingPath || '/') + (parsedUrl.search || '');
+
+  console.log(`${req.method} /api/${endpointName} -> ${baseUrl}${remainingPath}`);
 
   // Parse target URL
   const target = url.parse(targetUrl);
@@ -104,6 +108,11 @@ const server = http.createServer((req, res) => {
       'host': target.host
     }
   };
+
+  // Forward the login token and body size only when the browser sent them
+  ['authorization', 'content-length'].forEach((name) => {
+    if (headers[name]) options.headers[name] = headers[name];
+  });
 
   const proxyReq = protocol.request(options, (proxyRes) => {
     // Filter out CORS headers from Lambda response since we set our own
