@@ -12,7 +12,7 @@ resource "aws_rds_cluster" "this" {
   engine_mode                     = "provisioned"
   engine_version                  = "17.7"
   master_username                 = "superadmin"
-  master_password                 = random_pet.this.id
+  master_password                 = random_password.db.result
   database_name                   = replace(var.aws_project, "-", "")
   backup_retention_period         = 7
   preferred_backup_window         = "07:00-09:00"

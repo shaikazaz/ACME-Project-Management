@@ -15,6 +15,12 @@ resource "random_pet" "this" {
   }
 }
 
+# Database password. The pet name used before could be guessed.
+resource "random_password" "db" {
+  length  = 32
+  special = false
+}
+
 # Key that signs login tokens. Replacing it signs every user out.
 resource "random_password" "jwt" {
   length  = 64

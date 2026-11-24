@@ -4,6 +4,11 @@ A web application that gives ACME Inc. one place to see project progress, resour
 allocation, deliverables, dependencies, budgets and risks. Built in the
 [Coding Workshop](./docs/README.md) starter repository.
 
+**Live application:** <https://dv98up7lkaauj.cloudfront.net>
+
+Accounts are created by an administrator. No passwords are published here, because
+anyone could use them to change or delete data. Please ask the author for access.
+
 ## Questions It Answers
 
 | Question | Where |
@@ -106,6 +111,20 @@ file. On Google's free tier, use demo data only:
 ./bin/set-ai-key.sh
 ```
 
+## Deploy to AWS
+
+Needs the workshop's AWS access. Deploying shows the plan and asks first:
+
+```sh
+./bin/deploy-aws.sh plan     # Shows what would change
+./bin/deploy-aws.sh apply    # Deploys, migrates the database, checks the result
+./bin/deploy-aws.sh admin    # Creates an admin; the password is typed
+./bin/deploy-aws.sh check    # Health checks
+```
+
+CloudFront serves the pages from a private S3 bucket and forwards `/api` to the Lambda,
+which reaches the private Aurora database. The workshop does not allow API Gateway.
+
 ## Tests
 
 ```sh
@@ -114,7 +133,7 @@ export POSTGRES_PASS=<local database password>
 cd frontend && npm test && npm run lint
 ```
 
-Last full run on 24 November 2026: 688 backend and 140 frontend tests passed, with no
+Last full run on 24 November 2026: 694 backend and 140 frontend tests passed, with no
 Bandit or npm audit findings. A browser audit of every feature also passed; its scripts
 are not part of this repository.
 
@@ -135,8 +154,8 @@ are not part of this repository.
 * Team leads use the Project Manager role.
 * The free AI service is sometimes busy or slow. The app then shows its fixed rules.
 * Not load tested, and test coverage has not been measured.
-* Not deployed to AWS yet. Before that, the CloudFront rule that turns 404 responses
-  into pages and the 128 MB Lambda memory need to change.
+* On AWS the backend has no internet access, so AI Insights uses its fixed rules.
+* The AWS database pauses when idle, so the first request can take several seconds.
 
 ## Contributing
 
