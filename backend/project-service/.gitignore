@@ -1,0 +1,11 @@
+# start-dev.sh installs pip packages into this folder for Lambda hot reload.
+# Ignore everything, then list the files that are our own source code.
+/*
+!/.gitignore
+!/README.md
+!/function.py
+!/requirements.txt
+!/app/
+!/alembic.ini
+!/migrations/
+__pycache__/
